@@ -1,20 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import config from '@/config/config';
-import { useAuth } from '../context/AuthContext'; 
+import { useAuth } from '../context/AuthContext';
 
 type Plan = {
   id: string;
   plan_name: string;
   price: number;
   description: string;
-  coverage_details: string;
-  created_at: string;
-  updated_at: string;
   subscribed?: boolean; 
 };
 
@@ -26,12 +23,13 @@ type NavigationProp = StackNavigationProp<RootStackParamList, 'PlanDetails'>;
 
 export default function Plans() {
   const navigation = useNavigation<NavigationProp>();
-  const { token } = useAuth(); 
+  const { token } = useAuth();
   const [plansData, setPlansData] = useState<Plan[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
+  const fetchPlans = useCallback(() => {
     if (token) {
       axios.get(`${config.BASE_URL}/insurance-plans/`, {
         headers: {
@@ -43,9 +41,17 @@ export default function Plans() {
       })
       .catch(error => {
         console.error('Error fetching plans:', error);
-      });
+      })
+      .finally(() => setRefreshing(false));
     }
   }, [token]);
+
+  useEffect(() => {
+    fetchPlans(); // Initial fetch
+    const intervalId = setInterval(fetchPlans, 60000); // Fetch every 60 seconds
+
+    return () => clearInterval(intervalId); // Cleanup interval on component unmount
+  }, [fetchPlans]);
 
   const handleCardPress = (plan: Plan) => {
     navigation.navigate('PlanDetails', { plan });
@@ -65,6 +71,11 @@ export default function Plans() {
     const matchesFilter = filter === null || (filter === 'subscribed' && plan.subscribed) || (filter === 'notSubscribed' && !plan.subscribed);
     return matchesSearch && matchesFilter;
   });
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchPlans();
+  }, [fetchPlans]);
 
   return (
     <View style={styles.container}>
@@ -94,7 +105,15 @@ export default function Plans() {
           <Text style={styles.filterButtonText}>All</Text>
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.scrollContainer}>
+      <ScrollView
+        style={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
+        }
+      >
         {filteredPlans.map(plan => (
           <TouchableOpacity
             key={plan.id}
@@ -102,14 +121,10 @@ export default function Plans() {
             onPress={() => handleCardPress(plan)}
           >
             <Text style={styles.cardTitle}>{plan.plan_name}</Text>
-            <Text style={styles.cardPrice}>${plan.price} / month</Text>
+            <Text style={styles.cardPrice}>£{plan.price} / month</Text>
             <Text style={styles.cardDescription}>
               {plan.description.length > 100 ? plan.description.slice(0, 100) + '...' : plan.description}
             </Text>
-            <View style={styles.coverageDetailsContainer}>
-              <Text style={styles.coverageDetailsTitle}>Coverage Details:</Text>
-              <Text style={styles.coverageDetails}>{plan.coverage_details}</Text>
-            </View>
             {plan.subscribed && (
               <View style={styles.subscribedTag}>
                 <Ionicons name="checkmark-circle" size={20} color="green" />
@@ -122,6 +137,7 @@ export default function Plans() {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

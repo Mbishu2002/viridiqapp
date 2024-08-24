@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, FlatList, ScrollView } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import axios from 'axios';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons'; // Import icons
+import { Ionicons } from '@expo/vector-icons';
+import config from '@/config/config';
+import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../../types'; // Adjust import path as needed
 
 // Define the route and navigation prop types
@@ -19,8 +22,10 @@ type ClaimDetailsProps = {
 export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
   const { plan } = route.params; // Extract plan from route params
   const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState(''); // Add state for amount claimed
   const [files, setFiles] = useState<any[]>([]);
   const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
+  const { token } = useAuth();
 
   // Use effect to fetch claim details based on plan if needed
   useEffect(() => {
@@ -39,19 +44,45 @@ export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
     }
   };
 
-  const handleClaim = () => {
-    // Validate that all fields are filled
-    if (!description || files.length === 0) {
-      setSubmissionStatus('Please fill in all fields and upload at least one document.');
+  const handleClaim = async () => {
+    if (!description || !amount) {
+      setSubmissionStatus('Please fill in all fields.');
       return;
     }
 
-    // Handle claim submission here
-    console.log('Claim submitted:', { plan, description, files });
-    setSubmissionStatus('Claim submitted successfully.');
+    const formData = new FormData();
+    formData.append('description', description);
+    formData.append('amount_claimed', amount);
+    formData.append('plan', plan.id);
+    files.forEach(file => {
+      formData.append('documents', {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      });
+    });
 
-    // Optionally navigate to another screen after submission
-    // navigation.navigate('SomeOtherScreen');
+    try {
+      const response = await axios.post(`${config.BASE_URL}/claims/submit/`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Token ${token}`,
+        },
+      });
+
+      // Clear form data after successful submission
+      setDescription('');
+      setAmount('');
+      setFiles([]);
+      setSubmissionStatus('Claim submitted successfully.');
+
+      // Optionally, navigate to another screen or clear the page
+      // navigation.navigate('SomeOtherScreen'); // Uncomment if needed
+
+    } catch (error) {
+      console.error('Error submitting claim:', error);
+      setSubmissionStatus('Error submitting claim.');
+    }
   };
 
   const renderFileItem = ({ item }: { item: any }) => {
@@ -85,7 +116,7 @@ export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Claim Details for Plan {plan.name}</Text>
       <Text style={styles.label}>Plan Description:</Text>
       <Text style={styles.description}>{plan.description}</Text>
@@ -97,6 +128,14 @@ export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
         value={description}
         onChangeText={setDescription}
         placeholder="Enter details about your claim..."
+      />
+      <Text style={styles.label}>Amount Claimed:</Text>
+      <TextInput
+        style={styles.input}
+        keyboardType="numeric"
+        value={amount}
+        onChangeText={setAmount}
+        placeholder="Enter amount claimed..."
       />
       <View style={styles.uploadContainer}>
         <TouchableOpacity style={styles.uploadButton} onPress={handleFilePick}>
@@ -111,20 +150,19 @@ export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
         />
       </View>
       <TouchableOpacity style={styles.claimButton} onPress={handleClaim}>
-        <Text style={styles.claimButtonText}>claim</Text>
+        <Text style={styles.claimButtonText}>Submit Claim</Text>
       </TouchableOpacity>
       {submissionStatus && (
         <Text style={[styles.statusMessage, { color: submissionStatus === 'Claim submitted successfully.' ? 'lightgreen' : 'red' }]}>
           {submissionStatus}
         </Text>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
     padding: 16,
     backgroundColor: '#fff',
   },
@@ -160,8 +198,8 @@ const styles = StyleSheet.create({
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0', // Light grey background
-    borderColor: '#ccc', // Outline color
+    backgroundColor: '#f0f0f0',
+    borderColor: '#ccc',
     borderWidth: 1,
     paddingVertical: 4,
     paddingHorizontal: 8,

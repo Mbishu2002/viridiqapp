@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import Carousel from 'react-native-reanimated-carousel';
+import { Accelerometer } from 'expo-sensors';
+import axios from 'axios';
+import config from '@/config/config';
+import { useAuth } from '../context/AuthContext';
 
 interface HealthDataType {
   id: string;
@@ -17,10 +21,7 @@ interface Device {
 }
 
 const healthDataTypes: HealthDataType[] = [
-  { id: '1', title: 'Heart Rate', icon: 'heartbeat', connected: false },
-  { id: '2', title: 'Blood Pressure', icon: 'tint', connected: false },
-  { id: '3', title: 'Cholesterol', icon: 'medkit', connected: false },
-  { id: '4', title: 'Steps', icon: 'walking', connected: false },
+  { id: '1', title: 'Steps', icon: 'walking', connected: false },
 ];
 
 const devices: Device[] = [
@@ -34,25 +35,100 @@ const devices: Device[] = [
 const HealthDataCarousel = () => {
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [selectedDataId, setSelectedDataId] = useState<string>('');
+  const [isStepCountingActive, setIsStepCountingActive] = useState<boolean>(false);
+  const [stepCount, setStepCount] = useState<number>(0);
+  const { token } = useAuth();
+
+  useEffect(() => {
+    let subscription: any;
+    
+    const startStepCounting = async () => {
+      Accelerometer.setUpdateInterval(100); // Update every 100ms
+
+      subscription = Accelerometer.addListener(accelerometerData => {
+        const { x, y, z } = accelerometerData;
+        const acceleration = Math.sqrt(x * x + y * y + z * z);
+        
+        // Simple step detection threshold
+        if (acceleration > 1.2) {
+          setStepCount(prevCount => prevCount + 1);
+        }
+      });
+
+      setIsStepCountingActive(true);
+    };
+
+    if (isStepCountingActive) {
+      startStepCounting();
+
+      const interval = setInterval(() => {
+        sendStepCountToBackend(stepCount);
+      }, 5000); // Send step count every 5 seconds
+
+      return () => {
+        if (subscription) {
+          subscription.remove();
+        }
+        clearInterval(interval);
+      };
+    }
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [isStepCountingActive, stepCount]);
+
+  const sendStepCountToBackend = async (steps: number) => {
+    try {
+      await axios.post(`${config.BASE_URL}/health-data/save/`, {
+        data: JSON.stringify({ steps }), 
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Token ${token}`, // Include the authorization token
+        },
+      });
+      console.log('Step count recorded successfully');
+    } catch (error) {
+      console.error('Error recording step count:', error);
+    }
+  };
 
   const handleConnect = (id: string) => {
-    setSelectedDataId(id);
-    setModalVisible(true);
+    if (id === '1' && isStepCountingActive) {
+      setIsStepCountingActive(false); // Stop step counting
+      setStepCount(0); // Reset step count when disconnecting
+    } else {
+      setSelectedDataId(id);
+      setModalVisible(true);
+    }
   };
 
   const handleDeviceSelection = (device: Device) => {
     console.log(`Selected device: ${device.name}`);
     setModalVisible(false);
+    if (device.canTrack) {
+      setIsStepCountingActive(true); // Start step counting when a device is selected
+    }
   };
 
   const renderItem = (item: HealthDataType) => {
-    const isConnected = item.connected;
+    const isConnected = item.connected || (item.title === 'Steps' && isStepCountingActive);
     return (
       <View style={styles.carouselItem}>
-        <FontAwesome5 name={item.icon} size={64} color={isConnected ? 'green' : 'grey'} />
+        <View style={styles.iconContainer}>
+          <FontAwesome5 name={item.icon} size={64} color={isConnected ? '#4CAF50' : 'grey'} />
+        </View>
         <Text style={styles.dataTitle}>{item.title}</Text>
+        {item.title === 'Steps' && (
+          <View style={styles.stepContainer}>
+            <Text style={styles.stepCount}>{stepCount}</Text>
+          </View>
+        )}
         <TouchableOpacity
-          style={[styles.connectButton, { backgroundColor: isConnected ? 'red' : 'green' }]}
+          style={[styles.connectButton, { backgroundColor: isConnected ? '#f44336' : '#4CAF50' }]}
           onPress={() => handleConnect(item.id)}
         >
           <Text style={styles.connectButtonText}>{isConnected ? 'Disconnect' : 'Connect'}</Text>
@@ -65,11 +141,11 @@ const HealthDataCarousel = () => {
     <View style={styles.container}>
       <Carousel
         loop
-        width={300} // Adjust the width as needed
-        height={200} // Adjust the height as needed
-        autoPlay={false} // Set to true if you want the carousel to auto-play
+        width={300}
+        height={300}
+        autoPlay={false}
         data={healthDataTypes}
-        scrollAnimationDuration={1000} // Adjust scroll animation duration
+        scrollAnimationDuration={1000}
         renderItem={({ item }) => renderItem(item)}
         keyExtractor={item => item.id}
       />
@@ -79,8 +155,8 @@ const HealthDataCarousel = () => {
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+        <Pressable style={styles.modalContainer} onPress={() => setModalVisible(false)}>
+          <Pressable style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select a Device</Text>
             {devices.map(device => (
               <TouchableOpacity
@@ -98,8 +174,8 @@ const HealthDataCarousel = () => {
             >
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -108,31 +184,48 @@ const HealthDataCarousel = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width:  '100%',
+    width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },
   carouselItem: {
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f0f8ff',
-    borderRadius: 10,
-    padding: 20,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  iconContainer: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 50,
+    padding: 15,
   },
   dataTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '600',
+    marginTop: 15,
+    color: '#333',
+  },
+  stepContainer: {
     marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepCount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#4CAF50',
   },
   connectButton: {
-    marginTop: 10,
+    marginTop: 20,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 5,
+    borderRadius: 25,
+    alignItems: 'center',
   },
   connectButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '500',
   },
   modalContainer: {
     flex: 1,

@@ -3,8 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-nativ
 import OTPInput from './otpinput';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
-import { OTPScreenRouteProp, SignupScreenNavigationProp } from '@/types';
 import config from '@/config/config';
+import { useAuth } from '../context/AuthContext'; 
+import { OTPScreenRouteProp, SignupScreenNavigationProp } from '@/types';
 
 const OTP: React.FC = () => {
   const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
@@ -13,6 +14,7 @@ const OTP: React.FC = () => {
   const navigation = useNavigation<SignupScreenNavigationProp>();
   const route = useRoute<OTPScreenRouteProp>();
   const { email } = route.params;
+  const { setUser, setToken } = useAuth(); 
 
   const handleChange = (text: string, index: number) => {
     const newOtp = [...otp];
@@ -29,7 +31,7 @@ const OTP: React.FC = () => {
     const otpValue = otp.join('');
     try {
       const response = await axios.post(`${config.BASE_URL}/verify/`,
-        {otpValue },
+        { otp: otpValue, email }, 
         {
           headers: {
             'Content-Type': 'application/json',
@@ -37,10 +39,14 @@ const OTP: React.FC = () => {
         });
 
       if (response.status === 200) {
+        const { token, user } = response.data; 
+        setToken(token); 
+        setUser(user); 
         setMessage({ type: 'success', text: 'OTP Verified' });
         navigation.navigate('Tabs');
       }
     } catch (error) {
+      console.log(error);
       setMessage({ type: 'error', text: 'Invalid or expired OTP' });
     }
   };

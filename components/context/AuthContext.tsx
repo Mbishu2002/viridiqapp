@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import config from '@/config/config';
 import { useNavigation } from '@react-navigation/native';
-import { LoginScreenNavigationProp } from '@/types'; 
+import { LoginScreenNavigationProp } from '@/types';
 
 interface AuthContextProps {
   user: any;
@@ -11,6 +11,8 @@ interface AuthContextProps {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   token: string | null;
+  isLoggedIn: boolean;
+  setToken: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 const AuthContext = createContext<AuthContextProps | undefined>(undefined);
@@ -18,6 +20,7 @@ const AuthContext = createContext<AuthContextProps | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const navigation = useNavigation<LoginScreenNavigationProp>();
 
   const login = async (email: string, password: string) => {
@@ -30,9 +33,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (response.status === 200) {
         setUser(data.user);
         setToken(data.token);
-        // Store token in AsyncStorage
+        setIsLoggedIn(true);
+        navigation.navigate('Tabs');
         await AsyncStorage.setItem('authToken', data.token);
-
       } else {
         throw new Error(data.error || 'Login failed');
       }
@@ -44,6 +47,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async () => {
     setUser(null);
     setToken(null);
+    setIsLoggedIn(false);
     // Remove token from AsyncStorage
     await AsyncStorage.removeItem('authToken');
   };
@@ -55,6 +59,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const storedToken = await AsyncStorage.getItem('authToken');
         if (storedToken) {
           setToken(storedToken);
+          setIsLoggedIn(true);
+        } else {
+          setIsLoggedIn(false);
         }
       } catch (error) {
         console.error('Error loading token:', error);
@@ -64,7 +71,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, logout, token }}>
+    <AuthContext.Provider value={{ user, setUser, login, logout, token, isLoggedIn, setToken }}>
       {children}
     </AuthContext.Provider>
   );

@@ -61,6 +61,9 @@ const SignupScreen: React.FC<SignupScreenProps> = ({ navigation }) => {
       setError('');
 
       try {
+        // Log the data being sent
+        console.log('Signup Data:', { first_name, email, password });
+
         const response = await axios.post(`${config.BASE_URL}/register/`, {
           first_name,
           email,
@@ -70,10 +73,8 @@ const SignupScreen: React.FC<SignupScreenProps> = ({ navigation }) => {
             'Content-Type': 'application/json',
           }
         });
-        navigation.navigate('Login');
-
-        // setMessage('Signup successful! Please check your email for OTP.');
-        // navigation.navigate('OTP', { email });
+        setMessage('Signup successful! Please check your email for OTP.');
+        navigation.navigate('OTP', { email });
       } catch (error) {
         console.log(error);
         if (axios.isAxiosError(error) && error.response) {

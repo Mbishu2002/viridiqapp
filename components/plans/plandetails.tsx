@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import axios from 'axios';
 import config from '@/config/config'; 
 import { useAuth } from '../context/AuthContext'; 
+import Message from './Message'; 
 
 type Plan = {
   id: string;
-  name: string;
-  pricePerMonth: number;
+  plan_name: string;
+  price: number;
   subscribed: boolean;
   description: string;
 };
@@ -26,27 +25,34 @@ type Props = {
   navigation: PlanDetailsNavigationProp;
 };
 
-export default function PlanDetails({ route }: Props) {
+const PlanDetails: React.FC<Props> = ({ route }) => {
   const { plan } = route.params;
   const { token } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [messageVisible, setMessageVisible] = useState(false);
+
+  const showMessage = (text: string) => {
+    setMessage(text);
+    setMessageVisible(true);
+  };
 
   const handleSubscribe = async () => {
     if (!token) {
-      Alert.alert('Error', 'You must be logged in to subscribe.');
+      showMessage('You must be logged in to subscribe.');
       return;
     }
     setLoading(true);
     try {
-      await axios.post(`${config.BASE_URL}/subscribe/`, {"plan_id" : plan.id}, {
+      await axios.post(`${config.BASE_URL}/subscribe/`, { "plan_id": plan.id }, {
         headers: {
           Authorization: `Token ${token}`,
         },
       });
-      Alert.alert('Success', `Subscribed to ${plan.name}`);
+      showMessage(`Subscribed to ${plan.plan_name}`);
       // Update local state or refetch data as needed
     } catch (error) {
-      Alert.alert('Error', 'Failed to subscribe. Please try again.');
+      showMessage('Failed to subscribe. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -54,20 +60,20 @@ export default function PlanDetails({ route }: Props) {
 
   const handleUnsubscribe = async () => {
     if (!token) {
-      Alert.alert('Error', 'You must be logged in to unsubscribe.');
+      showMessage('You must be logged in to unsubscribe.');
       return;
     }
     setLoading(true);
     try {
-      await axios.post(`${config.BASE_URL}/unsubscribe/`, {"plan_id": plan.id}, {
+      await axios.post(`${config.BASE_URL}/unsubscribe/`, { "plan_id": plan.id }, {
         headers: {
           Authorization: `Token ${token}`,
         },
       });
-      Alert.alert('Success', `Unsubscribed from ${plan.name}`);
+      showMessage(`Unsubscribed from ${plan.plan_name}`);
       // Update local state or refetch data as needed
     } catch (error) {
-      Alert.alert('Error', 'Failed to unsubscribe. Please try again.');
+      showMessage('Failed to unsubscribe. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -75,8 +81,8 @@ export default function PlanDetails({ route }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{plan.name}</Text>
-      <Text style={styles.price}>${plan.pricePerMonth} / month</Text>
+      <Text style={styles.title}>{plan.plan_name}</Text>
+      <Text style={styles.price}>£{plan.price} / month</Text>
       <Text style={styles.description}>
         {plan.description}
       </Text>
@@ -91,9 +97,10 @@ export default function PlanDetails({ route }: Props) {
           <Text style={styles.buttonText}>Subscribe Now</Text>
         </TouchableOpacity>
       )}
+      <Message message={message} visible={messageVisible} onHide={() => setMessageVisible(false)} />
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -139,3 +146,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+
+export default PlanDetails;

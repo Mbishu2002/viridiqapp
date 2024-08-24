@@ -1,57 +1,85 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import axios from 'axios';
+import config from '@/config/config';
 import HealthDataCarousel from './data';
+import { useAuth } from '../context/AuthContext';
 
 type Request = {
-  id: string;
-  company: string;
-  requestDate: string;
-  dataRequested: string;
+  id: number;
+  insurance_company: string; 
+  timestamp: string;
+  status: string;
 };
 
-const initialRequestsData: Request[] = [
-  { id: '1', company: 'AXA', requestDate: '2024-08-01', dataRequested: 'Heart Data' },
-  { id: '2', company: 'Allianz', requestDate: '2024-08-02', dataRequested: 'Blood Pressure' },
-  { id: '3', company: 'State Farm', requestDate: '2024-08-03', dataRequested: 'Cholesterol Levels' },
-];
-
 export default function Home() {
-  const [requests, setRequests] = useState<Request[]>(initialRequestsData);
+  const [requests, setRequests] = useState<Request[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const { token } = useAuth();
 
-  const handleAccept = (id: string) => {
-    // Handle accepting the request
-    setRequests(prevRequests => prevRequests.filter(request => request.id !== id));
-    console.log(`Accepted request with ID: ${id}`);
-  };
+  // Fetch requests from the API
+  useEffect(() => {
+    const fetchRequests = async () => {
+      try {
+        const response = await axios.get(`${config.BASE_URL}/data-requests/`, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Token ${token}`, // Include the authorization token
+          },
+        });
+        setRequests(response.data);
+      } catch (error) {
+        console.error('Error fetching requests:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const handleReject = (id: string) => {
-    // Handle rejecting the request
-    setRequests(prevRequests => prevRequests.filter(request => request.id !== id));
-    console.log(`Rejected request with ID: ${id}`);
+    fetchRequests();
+  }, [token]);
+
+  const handleUpdateStatus = async (id: number, status: 'approved' | 'rejected') => {
+    try {
+      await axios.patch(`${config.BASE_URL}/data-requests/${id}/status/`, { status }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Token ${token}`, 
+        },
+      });
+      setRequests(prevRequests =>
+        prevRequests.filter(request => request.id !== id)
+      );
+      console.log(`Updated request with ID: ${id} to status: ${status}`);
+    } catch (error) {
+      console.error(`Error updating request with ID: ${id}`, error);
+    }
   };
 
   const renderRequestItem = (item: Request) => {
-    const dataRequestedMessage = `${item.company} requested your ${item.dataRequested}.`;
+    const formattedTimestamp = new Date(item.timestamp).toLocaleString();
+    const dataRequestedMessage = `Data Request from ${item.insurance_company} received on ${formattedTimestamp}.`;
 
     return (
       <View key={item.id} style={styles.requestCard}>
         <View style={styles.requestDetails}>
-          <Text style={styles.requestCompany}>{item.company}</Text>
-          <Text style={styles.requestDate}>{item.requestDate}</Text>
           <Text style={styles.dataRequested}>{dataRequestedMessage}</Text>
         </View>
         <View style={styles.iconsContainer}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => handleAccept(item.id)}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => handleUpdateStatus(item.id, 'approved')}>
             <MaterialIcons name="check-circle" size={24} color="green" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={() => handleReject(item.id)}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => handleUpdateStatus(item.id, 'rejected')}>
             <MaterialIcons name="cancel" size={24} color="red" />
           </TouchableOpacity>
         </View>
       </View>
     );
   };
+
+  if (loading) {
+    return <Text style={styles.loadingText}>Loading...</Text>;
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -61,7 +89,10 @@ export default function Home() {
       <View style={styles.requestsSection}>
         <Text style={styles.requestsTitle}>Data Access Requests</Text>
         {requests.length === 0 ? (
-          <Text style={styles.noRequests}>No Requests</Text>
+          <View style={styles.noRequestsContainer}>
+            <MaterialIcons name="inbox" size={50} color="grey" style={styles.noRequestsIcon} />
+            <Text style={styles.noRequestsText}>No Requests</Text>
+          </View>
         ) : (
           <View style={styles.scrollContainer}>
             {requests.map(renderRequestItem)}
@@ -74,7 +105,7 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1, // Allows content to expand
+    flexGrow: 1, 
     padding: 16,
     backgroundColor: '#fff',
   },
@@ -83,8 +114,8 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 10,
     marginBottom: 16,
-    height: 250, // Set height for the carousel
-    width: '100%', // Ensure full width
+    height: 300, 
+    width: '100%', 
   },
   requestsSection: {
     flex: 1,
@@ -94,14 +125,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  noRequests: {
+  noRequestsContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  noRequestsIcon: {
+    marginBottom: 10,
+  },
+  noRequestsText: {
     fontSize: 16,
     color: 'grey',
     textAlign: 'center',
-    marginTop: 20,
   },
   scrollContainer: {
-    paddingBottom: 16, // Add padding if needed
+    paddingBottom: 16,
   },
   requestCard: {
     backgroundColor: '#d4edda',
@@ -117,16 +154,6 @@ const styles = StyleSheet.create({
   requestDetails: {
     flex: 1,
   },
-  requestCompany: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  requestDate: {
-    fontSize: 14,
-    color: 'grey',
-    marginBottom: 4,
-  },
   dataRequested: {
     fontSize: 14,
     color: '#333',
@@ -139,5 +166,10 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 8,
     backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  loadingText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 20,
   },
 });

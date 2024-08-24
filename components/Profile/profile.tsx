@@ -1,42 +1,58 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Image, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Image, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import config from '@/config/config';
 import { useAuth } from '../context/AuthContext';
 
-const DEFAULT_PROFILE_PICTURE = 'https://example.com/default-profile-picture.png'; 
+const DEFAULT_PROFILE_PICTURE = 'https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2';
 
 export default function Profile() {
   const { user, setUser, token } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
   const [userInfo, setUserInfo] = useState({
-    name: user?.name || '',
+    first_name: user?.first_name || '',
     email: user?.email || '',
-    profilePicture: user?.profilePicture || DEFAULT_PROFILE_PICTURE,
+    profile_image: user?.profile_image || DEFAULT_PROFILE_PICTURE,
   });
 
   const handleSave = async () => {
     if (!token) {
-      Alert.alert('Error', 'You must be logged in to save changes.');
+      setMessage('You must be logged in to save changes.');
       return;
     }
     setLoading(true);
     try {
-      const response = await axios.put(`${config.BASE_URL}/profile/update/`, {
-        name: userInfo.name,
-        email: userInfo.email,
-      }, {
-        headers: { Authorization: `Token ${token}` },
+      const formData = new FormData();
+      formData.append('first_name', userInfo.first_name);
+      formData.append('email', userInfo.email);
+
+      // Append profile image if selected
+      if (userInfo.profile_image !== DEFAULT_PROFILE_PICTURE) {
+        formData.append('profile_image', {
+          uri: userInfo.profile_image, 
+          type: 'image/jpeg',
+          name: 'profile_picture.jpg',
+        });
+      }
+
+      const response = await axios.put(`${config.BASE_URL}/profile/update/`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Token ${token}`,
+        },
       });
-      setUser(response.data.user); 
-      Alert.alert('Success', 'Profile updated successfully.');
+
+      setUser(response.data);
+      setMessage('Profile updated successfully.');
       setIsEditing(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
+      setMessage('Failed to update profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -51,10 +67,31 @@ export default function Profile() {
     });
 
     if (!result.canceled) {
-      setUserInfo({ ...userInfo, profilePicture: result.uri });
-      // Optionally, you could upload the image to your server here
+      setImageLoading(true);
+      try {
+        const formData = new FormData();
+        formData.append('profile_image', {
+          uri: result.assets[0].uri,
+          type: 'image/jpeg',
+          name: 'profile_picture.jpg',
+        });
+
+        await axios.post(`${config.BASE_URL}/profile/upload-image/`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Token ${token}`,
+          },
+        });
+
+        setUserInfo({ ...userInfo, profile_image: result.assets[0].uri });
+        setMessage('Profile picture updated successfully.');
+      } catch (error) {
+        setMessage('Failed to update profile picture.');
+      } finally {
+        setImageLoading(false);
+      }
     } else {
-      Alert.alert('Image Selection', 'You did not select an image.');
+      setMessage('You did not select an image.');
     }
   };
 
@@ -63,7 +100,7 @@ export default function Profile() {
       {/* Top Banner Image */}
       <View style={styles.bannerContainer}>
         <Image
-          source={{ uri: userInfo.profilePicture || DEFAULT_PROFILE_PICTURE }}
+          source={{ uri: userInfo.profile_image || DEFAULT_PROFILE_PICTURE }}
           style={styles.bannerImage}
           resizeMode="cover"
         />
@@ -72,7 +109,11 @@ export default function Profile() {
         </TouchableOpacity>
         {!isEditing && (
           <TouchableOpacity style={styles.changePictureButton} onPress={handleImagePick}>
-            <MaterialIcons name="camera-alt" size={24} color="#fff" />
+            {imageLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <MaterialIcons name="camera-alt" size={24} color="#fff" />
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -83,7 +124,7 @@ export default function Profile() {
           <View>
             <TextInput
               style={styles.input}
-              value={userInfo.name}
+              value={userInfo.first_name}
               onChangeText={(text) => setUserInfo({ ...userInfo, first_name: text })}
               placeholder="Name"
             />
@@ -92,6 +133,7 @@ export default function Profile() {
               value={userInfo.email}
               onChangeText={(text) => setUserInfo({ ...userInfo, email: text })}
               placeholder="Email"
+              keyboardType="email-address"
             />
             <View style={styles.actionContainer}>
               <TouchableOpacity style={[styles.actionIcon, styles.saveIcon]} onPress={handleSave}>
@@ -119,6 +161,7 @@ export default function Profile() {
           </View>
         )}
       </View>
+      {message ? <Text style={styles.message}>{message}</Text> : null}
     </ScrollView>
   );
 }
@@ -203,5 +246,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  message: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+    marginVertical: 10,
   },
 });

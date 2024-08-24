@@ -1,146 +1,188 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
-import { RouteProp } from '@react-navigation/native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, RefreshControl } from 'react-native';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
 import config from '@/config/config';
+import { useAuth } from '../context/AuthContext';
+
+type Plan = {
+  id: string;
+  name: string;
+  description: string;
+  subscribed: boolean;
+};
 
 type RootStackParamList = {
+  TabLayout: undefined;
   ClaimDetails: { plan: Plan };
 };
 
-type Plan = {
-  id: number; // BigAutoField is treated as number in the frontend
-  plan_name: string;
-  description: string;
-};
+type NavigationProp = StackNavigationProp<RootStackParamList, 'ClaimDetails'>;
 
-type ClaimDetailsRouteProp = RouteProp<RootStackParamList, 'ClaimDetails'>;
-type ClaimDetailsNavigationProp = StackNavigationProp<RootStackParamList, 'ClaimDetails'>;
-
-type ClaimDetailsProps = {
-  route: ClaimDetailsRouteProp;
-  navigation: ClaimDetailsNavigationProp;
-};
-
-export default function ClaimDetails({ route, navigation }: ClaimDetailsProps) {
-  const { plan } = route.params; // Extract plan from route params
-  const [description, setDescription] = useState('');
-  const [amountClaimed, setAmountClaimed] = useState('');
-  const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
+export default function Claims() {
+  const [search, setSearch] = useState('');
+  const [filteredPlans, setFilteredPlans] = useState<Plan[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const navigation = useNavigation<NavigationProp>();
   const { token } = useAuth();
 
-  const handleClaim = async () => {
-    // Validate that all fields are filled
-    if (!description || !amountClaimed) {
-      setSubmissionStatus('Please fill in all fields.');
-      return;
-    }
-
-    // Prepare claim data for submission
-    const claimData = {
-      plan: plan.id,
-      amount_claimed: amountClaimed,
-      description, 
-    };
-
-    try {
-      const response = await axios.post(`${config.BASE_URL}/claims/submit`, claimData, {
+  const fetchClaims = useCallback(() => {
+    if (token) {
+      axios.get(`${config.BASE_URL}/insurance-plans/`, {
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Token ${token}`, 
+          Authorization: `Token ${token}`,
         },
-      });
-      setSubmissionStatus('Claim submitted successfully.');
-      // Optionally navigate to another screen after submission
-      // navigation.navigate('SomeOtherScreen');
-    } catch (error) {
-      console.error('Error submitting claim:', error);
-      setSubmissionStatus('Failed to submit claim. Please try again.');
+      })
+      .then(response => {
+        const subscribedPlans = response.data.filter((plan: Plan) => plan.subscribed);
+        setFilteredPlans(subscribedPlans);
+      })
+      .catch(error => {
+        console.error('Error fetching plans:', error);
+      })
+      .finally(() => setRefreshing(false));
     }
+  }, [token]);
+
+  useEffect(() => {
+    fetchClaims(); // Initial fetch
+    const intervalId = setInterval(fetchClaims, 60000); // Fetch every 60 seconds
+
+    return () => clearInterval(intervalId); // Cleanup interval on component unmount
+  }, [fetchClaims]);
+
+  const handleSearch = (text: string) => {
+    setSearch(text);
+    const filtered = filteredPlans.filter(plan =>
+      plan.plan_name.toLowerCase().includes(text.toLowerCase())
+    );
+    setFilteredPlans(filtered);
   };
+
+  const handleClaimPress = (plan: Plan) => {
+    navigation.navigate('ClaimDetails', { plan });
+  };
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchClaims();
+  }, [fetchClaims]);
+
+  const renderItem = ({ item }: { item: Plan }) => (
+    <TouchableOpacity style={styles.card} onPress={() => handleClaimPress(item)}>
+      <View style={styles.cardContent}>
+        <View style={styles.claimIcon}>
+          <Ionicons name="shield-checkmark-outline" size={50} color="green" />
+        </View>
+        <View style={styles.cardText}>
+          <Text style={styles.cardTitle}>{item.plan_name}</Text>
+          <Text style={styles.cardDescription}>
+            {item.description.length > 100 ? `${item.description.substring(0, 100)}...` : item.description}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Claim Details for Plan {plan.plan_name}</Text>
-      <Text style={styles.label}>Plan Description:</Text>
-      <Text style={styles.description}>{plan.description}</Text>
-      <Text style={styles.label}>Describe your claim:</Text>
-      <TextInput
-        style={styles.input}
-        multiline
-        numberOfLines={4}
-        value={description}
-        onChangeText={setDescription}
-        placeholder="Enter details about your claim..."
-      />
-      <Text style={styles.label}>Amount Claimed:</Text>
-      <TextInput
-        style={styles.input}
-        value={amountClaimed}
-        onChangeText={setAmountClaimed}
-        placeholder="Enter amount claimed"
-        keyboardType="numeric"
-      />
-      <TouchableOpacity style={styles.claimButton} onPress={handleClaim}>
-        <Text style={styles.claimButtonText}>Submit Claim</Text>
-      </TouchableOpacity>
-      {submissionStatus && (
-        <Text style={[styles.statusMessage, { color: submissionStatus.includes('successfully') ? 'lightgreen' : 'red' }]}>
-          {submissionStatus}
-        </Text>
+      <View style={styles.searchBar}>
+        <MaterialIcons name="search" size={24} color="grey" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search plans..."
+          value={search}
+          onChangeText={handleSearch}
+        />
+      </View>
+      {filteredPlans.length === 0 ? (
+        <View style={styles.noPlansContainer}>
+          <MaterialCommunityIcons name="emoticon-sad" size={50} color="grey" />
+          <Text style={styles.noPlansText}>No subscribed plans available</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredPlans}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          }
+        />
       )}
     </View>
   );
 }
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
     padding: 16,
-    backgroundColor: '#fff',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 8,
     marginBottom: 16,
   },
-  label: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  description: {
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
     fontSize: 16,
-    color: '#333',
-    marginBottom: 20,
   },
-  input: {
-    borderColor: '#ddd',
-    borderWidth: 1,
+  card: {
+    backgroundColor: 'white',
     borderRadius: 8,
-    padding: 10,
-    marginBottom: 20,
-    fontSize: 16,
-    backgroundColor: '#f8f8f8',
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  claimButton: {
-    backgroundColor: '#28a745',
-    paddingVertical: 8,
-    width: '80%',
-    paddingHorizontal: 12,
-    borderRadius: 25,
-    alignSelf: 'center',
+  cardContent: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  claimButtonText: {
-    color: '#fff',
-    fontSize: 20,
+  cardText: {
+    flex: 1,
+    marginLeft: 16,
   },
-  statusMessage: {
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  cardDescription: {
+    fontSize: 14,
+    color: 'grey',
+    marginTop: 8,
+  },
+  claimIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPlansContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPlansText: {
     fontSize: 16,
-    marginTop: 20,
-    textAlign: 'center',
+    color: 'grey',
+    marginTop: 16,
   },
 });
